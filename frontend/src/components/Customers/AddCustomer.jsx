@@ -7,18 +7,15 @@ import {
   FiMail, 
   FiPhone, 
   FiMapPin, 
-  FiBriefcase, 
   FiFileText,
   FiArrowLeft,
   FiCheckCircle,
   FiXCircle,
   FiUserPlus,
-  FiPhoneCall,
-  FiHome,
   FiInfo
 } from 'react-icons/fi';
-import { MdLocationCity, MdBusiness, MdNotes, MdSecurity } from 'react-icons/md';
-import { HiBuildingOffice, HiUsers } from 'react-icons/hi2';
+import { MdLocationCity } from 'react-icons/md';
+import { HiBuildingOffice } from 'react-icons/hi2';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -36,20 +33,56 @@ const AddCustomer = () => {
     notes: ''
   });
 
+  // Get auth token from localStorage
+  const getAuthToken = () => {
+    return localStorage.getItem('token');
+  };
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    const token = getAuthToken();
+    
+    if (!token) {
+      toast.error('Please login to continue');
+      navigate('/login');
+      return;
+    }
+    
     setLoading(true);
     
     try {
-      await axios.post(`${API_BASE_URL}/customers`, formData);
-      toast.success('Customer added successfully!');
-      navigate('/customers');
+      const response = await axios.post(`${API_BASE_URL}/customers`, formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.data.success) {
+        toast.success('Customer added successfully!');
+        navigate('/customers');
+      } else {
+        toast.error(response.data.message || 'Failed to add customer');
+      }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to add customer');
+      console.error('Error adding customer:', error);
+      
+      if (error.response?.status === 401) {
+        toast.error('Session expired. Please login again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else if (error.code === 'ERR_NETWORK') {
+        toast.error('Cannot connect to server. Make sure backend is running on port 5000');
+      } else {
+        toast.error('Failed to add customer. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

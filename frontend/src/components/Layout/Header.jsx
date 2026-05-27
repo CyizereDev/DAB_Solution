@@ -1,21 +1,114 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Bars3Icon,
   BellIcon,
   ArrowRightOnRectangleIcon,
   UserCircleIcon,
   SunIcon,
-  MoonIcon
+  MoonIcon,
+  ShoppingBagIcon,
+  CubeIcon,
+  UsersIcon,
+  TruckIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon
 } from "@heroicons/react/24/outline";
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import toast from 'react-hot-toast';
+import { formatDistanceToNow } from 'date-fns';
+
+const API_BASE_URL = 'http://localhost:5000/api';
 
 const Header = ({ onMenuClick, onMobileMenuClick }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const notificationRef = useRef(null);
+
+  const getAuthToken = () => localStorage.getItem('token');
+
+  // Fetch recent activities
+  const fetchRecentActivities = async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+
+      const response = await axios.get(`${API_BASE_URL}/dashboard/activities`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const activities = response.data?.data || [];
+      
+      // Transform activities into notification format
+      const formattedNotifications = activities.map(activity => ({
+        id: activity._id,
+        message: activity.details || `${activity.action} occurred`,
+        time: activity.timestamp,
+        read: false,
+        type: getNotificationType(activity.action),
+        icon: getNotificationIcon(activity.action)
+      }));
+
+      setNotifications(formattedNotifications);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+    }
+  };
+
+  const getNotificationType = (action) => {
+    if (action?.toLowerCase().includes('sale')) return 'sale';
+    if (action?.toLowerCase().includes('product')) return 'product';
+    if (action?.toLowerCase().includes('customer')) return 'customer';
+    if (action?.toLowerCase().includes('purchase')) return 'purchase';
+    if (action?.toLowerCase().includes('stock')) return 'stock';
+    return 'general';
+  };
+
+  const getNotificationIcon = (action) => {
+    if (action?.toLowerCase().includes('sale')) return ShoppingBagIcon;
+    if (action?.toLowerCase().includes('product')) return CubeIcon;
+    if (action?.toLowerCase().includes('customer')) return UsersIcon;
+    if (action?.toLowerCase().includes('purchase')) return TruckIcon;
+    if (action?.toLowerCase().includes('stock')) return ExclamationTriangleIcon;
+    return CheckCircleIcon;
+  };
+
+  const getNotificationColor = (type) => {
+    switch(type) {
+      case 'sale': return 'bg-green-100 text-green-600';
+      case 'product': return 'bg-blue-100 text-blue-600';
+      case 'customer': return 'bg-purple-100 text-purple-600';
+      case 'purchase': return 'bg-orange-100 text-orange-600';
+      case 'stock': return 'bg-yellow-100 text-yellow-600';
+      default: return 'bg-gray-100 text-gray-600';
+    }
+  };
+
+  useEffect(() => {
+    fetchRecentActivities();
+    
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(fetchRecentActivities, 30000);
+    
+    // Close notification dropdown when clicking outside
+    const handleClickOutside = (event) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setShowNotifications(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -32,14 +125,48 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
     }
   };
 
-  // Sample notifications
-  const notifications = [
-    { id: 1, message: 'New sale recorded', time: '2 min ago', read: false },
-    { id: 2, message: 'Low stock alert: Laptop Pro', time: '1 hour ago', read: false },
-    { id: 3, message: 'Monthly report ready', time: '3 hours ago', read: true },
-  ];
+  const markAsRead = async (notificationId) => {
+    setNotifications(prev =>
+      prev.map(notif =>
+        notif.id === notificationId ? { ...notif, read: true } : notif
+      )
+    );
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev =>
+      prev.map(notif => ({ ...notif, read: true }))
+    );
+    toast.success('All notifications marked as read');
+  };
+
+  const handleNotificationClick = (notification) => {
+    markAsRead(notification.id);
+    setShowNotifications(false);
+    
+    // Navigate based on notification type
+    if (notification.type === 'sale') {
+      navigate('/sales');
+    } else if (notification.type === 'product') {
+      navigate('/products');
+    } else if (notification.type === 'customer') {
+      navigate('/customers');
+    } else if (notification.type === 'purchase') {
+      navigate('/purchases');
+    } else if (notification.type === 'stock') {
+      navigate('/stock');
+    }
+  };
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  const formatTime = (timestamp) => {
+    try {
+      return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
+    } catch {
+      return 'Recently';
+    }
+  };
 
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 transition-colors duration-200">
@@ -94,7 +221,7 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
             </button>
 
             {/* Notifications Dropdown */}
-            <div className="relative">
+            <div className="relative" ref={notificationRef}>
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 relative focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -102,7 +229,7 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
               >
                 <BellIcon className="h-5 w-5 text-gray-600 dark:text-gray-300" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
                     <span className="text-[10px] font-bold text-white">{unreadCount}</span>
                   </span>
                 )}
@@ -110,23 +237,80 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
 
               {/* Notification Dropdown Menu */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden z-50 animate-fade-in">
-                  <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden z-50 animate-fade-in">
+                  <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700 dark:to-gray-800">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Notifications</h3>
-                      <button className="text-xs text-blue-600 hover:text-blue-700">Mark all as read</button>
+                      <div className="flex items-center gap-2">
+                        <BellIcon className="h-5 w-5 text-blue-600" />
+                        <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Notifications</h3>
+                      </div>
+                      {unreadCount > 0 && (
+                        <button 
+                          onClick={markAllAsRead}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
                     </div>
                   </div>
+                  
                   <div className="max-h-96 overflow-y-auto">
-                    {notifications.map(notif => (
-                      <div key={notif.id} className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer ${!notif.read ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                        <p className="text-sm text-gray-800 dark:text-gray-200">{notif.message}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{notif.time}</p>
+                    {loadingNotifications ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                       </div>
-                    ))}
+                    ) : notifications.length === 0 ? (
+                      <div className="text-center py-8">
+                        <BellIcon className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                        <p className="text-gray-500 text-sm">No notifications yet</p>
+                        <p className="text-xs text-gray-400 mt-1">New activities will appear here</p>
+                      </div>
+                    ) : (
+                      notifications.map((notif) => {
+                        const IconComponent = notif.icon;
+                        const notificationColor = getNotificationColor(notif.type);
+                        
+                        return (
+                          <div
+                            key={notif.id}
+                            onClick={() => handleNotificationClick(notif)}
+                            className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
+                              !notif.read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${notificationColor}`}>
+                                <IconComponent className="h-4 w-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-gray-800 dark:text-gray-200 font-medium">
+                                  {notif.message}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {formatTime(notif.time)}
+                                </p>
+                              </div>
+                              {!notif.read && (
+                                <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1"></div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
-                  <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-center">
-                    <button className="text-xs text-blue-600 hover:text-blue-700">View all notifications</button>
+                  
+                  <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-center bg-gray-50 dark:bg-gray-800/50">
+                    <button 
+                      onClick={() => {
+                        setShowNotifications(false);
+                        navigate('/dashboard');
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      View all activity
+                    </button>
                   </div>
                 </div>
               )}
@@ -147,21 +331,23 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
               </button>
               
               {/* Dropdown Menu */}
-              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-                  <p className="text-sm font-medium text-gray-800 dark:text-white">{user?.username}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{user?.email}</p>
+              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700 dark:to-gray-800">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white">{user?.username}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{user?.email}</p>
                 </div>
                 <button
-                  onClick={() => navigate('/profile')}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    navigate('/settings');
+                  }}
+                  className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
                 >
                   <UserCircleIcon className="h-4 w-4" />
-                  Profile Settings
+                  Profile & Settings
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-2"
+                  className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-2 border-t border-gray-100 dark:border-gray-700"
                 >
                   <ArrowRightOnRectangleIcon className="h-4 w-4" />
                   Logout
