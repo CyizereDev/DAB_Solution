@@ -9,10 +9,11 @@ import {
   ShoppingCartIcon,
   UserIcon,
   CreditCardIcon,
-  CurrencyDollarIcon
+  CheckCircleIcon,
+  ClockIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
-// Use the full backend URL
 const API_BASE_URL = 'http://localhost:5000/api';
 
 const NewSale = () => {
@@ -23,11 +24,17 @@ const NewSale = () => {
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [cart, setCart] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentStatus, setPaymentStatus] = useState('paid'); // Default to 'paid'
   const [discount, setDiscount] = useState(0);
   const [tax, setTax] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', address: '' });
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+
+  // Get auth token from localStorage
+  const getAuthToken = () => {
+    return localStorage.getItem('token');
+  };
 
   useEffect(() => {
     fetchData();
@@ -35,23 +42,34 @@ const NewSale = () => {
 
   const fetchData = async () => {
     try {
-      console.log('Fetching customers and products...');
+      const token = getAuthToken();
+      
+      if (!token) {
+        toast.error('Please login to continue');
+        navigate('/login');
+        return;
+      }
+      
       const [customersRes, productsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/customers`),
-        axios.get(`${API_BASE_URL}/products`)
+        axios.get(`${API_BASE_URL}/customers`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        axios.get(`${API_BASE_URL}/products`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
       ]);
       
-      // Safely extract data with fallbacks
-      const customersData = customersRes.data?.data || [];
-      const productsData = productsRes.data?.data || [];
-      
-      console.log(`Loaded ${customersData.length} customers and ${productsData.length} products`);
-      
-      setCustomers(customersData);
-      setProducts(productsData);
+      setCustomers(customersRes.data?.data || []);
+      setProducts(productsRes.data?.data || []);
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast.error('Error fetching data. Make sure backend is running.');
+      if (error.response?.status === 401) {
+        toast.error('Session expired. Please login again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        toast.error('Error fetching data. Make sure backend is running.');
+      }
       setCustomers([]);
       setProducts([]);
     }
@@ -112,7 +130,11 @@ const NewSale = () => {
 
   const createCustomer = async () => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/customers`, newCustomer);
+      const token = getAuthToken();
+      const response = await axios.post(`${API_BASE_URL}/customers`, newCustomer, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
       const newCustomerData = response.data.data;
       setCustomers([...customers, newCustomerData]);
       setSelectedCustomer(newCustomerData._id);
@@ -127,43 +149,60 @@ const NewSale = () => {
   const subtotal = cart.reduce((sum, item) => sum + (item.total || 0), 0);
   const total = subtotal + tax - discount;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!selectedCustomer) {
-      toast.error('Please select a customer');
-      return;
-    }
-    
-    if (cart.length === 0) {
-      toast.error('Cart is empty');
-      return;
-    }
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  const token = getAuthToken();
+  if (!token) {
+    toast.error('Please login to continue');
+    navigate('/login');
+    return;
+  }
+  
+  if (!selectedCustomer) {
+    toast.error('Please select a customer');
+    return;
+  }
+  
+  if (cart.length === 0) {
+    toast.error('Cart is empty');
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
+  
+  try {
+    const saleData = {
+      customerId: selectedCustomer,
+      items: cart.map(item => ({
+        product: item.product,
+        quantity: item.quantity
+      })),
+      paymentMethod: paymentMethod,
+      paymentStatus: paymentStatus, // THIS IS CRITICAL - must be included
+      discount: Number(discount),
+      tax: Number(tax)
+    };
     
-    try {
-      const saleData = {
-        customerId: selectedCustomer,
-        items: cart,
-        paymentMethod,
-        discount,
-        tax
-      };
-      
-      console.log('Submitting sale:', saleData);
-      await axios.post(`${API_BASE_URL}/sales`, saleData);
-      toast.success('Sale recorded successfully!');
-      navigate('/sales');
-    } catch (error) {
-      console.error('Sale error:', error);
-      toast.error(error.response?.data?.message || 'Error recording sale');
-    } finally {
-      setLoading(false);
-    }
-  };
+    console.log('Sending paymentStatus:', paymentStatus); // Debug log
+    
+    const response = await axios.post(`${API_BASE_URL}/sales`, saleData, {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    toast.success(`Sale recorded! Payment: ${paymentStatus.toUpperCase()}`);
+    navigate('/sales');
+  } catch (error) {
+    console.error('Sale error:', error);
+    toast.error(error.response?.data?.message || 'Error recording sale');
+  } finally {
+    setLoading(false);
+  }
+};
 
-  // Safe filtering - ensure products is an array
   const filteredProducts = Array.isArray(products) ? products.filter(product =>
     product?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     product?.sku?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -353,6 +392,7 @@ const NewSale = () => {
                   </div>
                 </div>
                 
+                {/* Payment Method */}
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
                   <select
@@ -365,6 +405,81 @@ const NewSale = () => {
                     <option value="bank_transfer">🏦 Bank Transfer</option>
                     <option value="mobile_money">📱 Mobile Money</option>
                   </select>
+                </div>
+
+                {/* Payment Status - FIXED VERSION */}
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Payment Status <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('Setting payment status to: paid');
+                        setPaymentStatus('paid');
+                      }}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 transition-all duration-200 ${
+                        paymentStatus === 'paid'
+                          ? 'border-green-500 bg-green-500 text-white shadow-md'
+                          : 'border-gray-200 bg-white text-gray-600 hover:bg-green-50 hover:border-green-300'
+                      }`}
+                    >
+                      <CheckCircleIcon className="h-4 w-4" />
+                      <span className="text-sm font-medium">Paid</span>
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('Setting payment status to: partial');
+                        setPaymentStatus('partial');
+                      }}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 transition-all duration-200 ${
+                        paymentStatus === 'partial'
+                          ? 'border-orange-500 bg-orange-500 text-white shadow-md'
+                          : 'border-gray-200 bg-white text-gray-600 hover:bg-orange-50 hover:border-orange-300'
+                      }`}
+                    >
+                      <ExclamationTriangleIcon className="h-4 w-4" />
+                      <span className="text-sm font-medium">Partial</span>
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('Setting payment status to: pending');
+                        setPaymentStatus('pending');
+                      }}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 transition-all duration-200 ${
+                        paymentStatus === 'pending'
+                          ? 'border-yellow-500 bg-yellow-500 text-white shadow-md'
+                          : 'border-gray-200 bg-white text-gray-600 hover:bg-yellow-50 hover:border-yellow-300'
+                      }`}
+                    >
+                      <ClockIcon className="h-4 w-4" />
+                      <span className="text-sm font-medium">Pending</span>
+                    </button>
+                  </div>
+                  
+                  {/* Status indicator text */}
+                  <div className="mt-2 text-xs">
+                    {paymentStatus === 'paid' && (
+                      <p className="text-green-600 flex items-center gap-1">
+                        <CheckCircleIcon className="h-3 w-3" /> ✓ Full payment received
+                      </p>
+                    )}
+                    {paymentStatus === 'partial' && (
+                      <p className="text-orange-600 flex items-center gap-1">
+                        <ExclamationTriangleIcon className="h-3 w-3" /> ⚠ Partial payment - balance pending
+                      </p>
+                    )}
+                    {paymentStatus === 'pending' && (
+                      <p className="text-yellow-600 flex items-center gap-1">
+                        <ClockIcon className="h-3 w-3" /> ⏳ Awaiting payment confirmation
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <button
@@ -392,7 +507,7 @@ const NewSale = () => {
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4">
             <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setShowNewCustomerForm(false)}></div>
-            <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-fade-in">
+            <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
               <div className="flex items-center gap-2 mb-4">
                 <UserIcon className="h-6 w-6 text-blue-600" />
                 <h2 className="text-xl font-bold text-gray-800">Add New Customer</h2>

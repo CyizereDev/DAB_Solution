@@ -218,7 +218,7 @@ const Sidebar = ({ isOpen }) => {
   const quickActions = getQuickActions();
 
   return (
-    <div className={`h-full bg-gradient-to-b from-gray-900 to-gray-800 text-white flex flex-col transition-all duration-300 ${isOpen ? 'w-80' : 'w-20'} relative overflow-y-auto`}>
+    <div className={`h-full bg-gradient-to-b from-gray-900 to-gray-800 text-white flex flex-col transition-all duration-300 ${isOpen ? 'w-75' : 'w-20'} relative overflow-y-auto`}>
       {/* Logo Section */}
       <div className="p-4 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
         <div className={`flex items-center ${!isOpen && 'justify-center'}`}>

@@ -51,6 +51,9 @@ import StockReport from './components/Reports/StockReport';
 import CustomerReport from './components/Reports/CustomerReport';
 import FinancialReport from './components/Reports/FinancialReport';
 
+//settings
+import SystemSettings from './components/Settings/SystemSettings';
+
 function App() {
   return (
     <Router>
@@ -123,6 +126,7 @@ function App() {
               <Route path="/reports/stock" element={<StockReport />} />
               <Route path="/reports/customers" element={<CustomerReport />} />
               <Route path="/reports/financial" element={<FinancialReport />} />
+              <Route path="/settings" element={<SystemSettings />} />
             </Route>
           </Route>
         </Routes>

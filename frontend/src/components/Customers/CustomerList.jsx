@@ -28,18 +28,47 @@ const CustomerList = () => {
   const [sortBy, setSortBy] = useState('name');
   const { hasRole } = useAuth();
 
+  // Get auth token from localStorage
+  const getAuthToken = () => {
+    return localStorage.getItem('token');
+  };
+
   useEffect(() => {
     fetchCustomers();
   }, []);
 
   const fetchCustomers = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/customers`);
+      const token = getAuthToken();
+      
+      if (!token) {
+        console.error('No auth token found');
+        toast.error('Please login to continue');
+        setCustomers([]);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Fetching customers with token...');
+      const response = await axios.get(`${API_BASE_URL}/customers`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('Customers response:', response.data);
       const customerData = response.data?.data || [];
       setCustomers(customerData);
     } catch (error) {
       console.error('Error fetching customers:', error);
-      toast.error('Failed to fetch customers');
+      if (error.response?.status === 401) {
+        toast.error('Session expired. Please login again.');
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      } else {
+        toast.error('Failed to fetch customers');
+      }
       setCustomers([]);
     } finally {
       setLoading(false);
@@ -49,11 +78,22 @@ const CustomerList = () => {
   const handleDelete = async (id, name) => {
     if (window.confirm(`Are you sure you want to delete ${name}?`)) {
       try {
-        await axios.delete(`${API_BASE_URL}/customers/${id}`);
+        const token = getAuthToken();
+        
+        await axios.delete(`${API_BASE_URL}/customers/${id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
         toast.success('Customer deleted successfully');
         fetchCustomers();
       } catch (error) {
-        toast.error('Failed to delete customer');
+        if (error.response?.status === 401) {
+          toast.error('Session expired. Please login again.');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        } else {
+          toast.error('Failed to delete customer');
+        }
       }
     }
   };
@@ -223,7 +263,6 @@ const CustomerList = () => {
       {/* Customers Table */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
         {customers.length === 0 ? (
-          // Empty State - No Customers
           <div className="text-center py-16">
             <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
               <UsersIcon className="h-12 w-12 text-gray-400" />
@@ -241,7 +280,6 @@ const CustomerList = () => {
             )}
           </div>
         ) : filteredCustomers.length === 0 ? (
-          // Empty State - No Search Results
           <div className="text-center py-16">
             <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
               <MagnifyingGlassIcon className="h-12 w-12 text-gray-400" />
@@ -260,7 +298,6 @@ const CustomerList = () => {
             </button>
           </div>
         ) : (
-          // Customers Table
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -288,7 +325,7 @@ const CustomerList = () => {
                         </div>
                         <div>
                           <p className="font-semibold text-gray-900">{customer.name || 'N/A'}</p>
-                          <p className="text-xs text-gray-500">Since {new Date(customer.createdAt).getFullYear()}</p>
+                          <p className="text-xs text-gray-500">Since {customer.createdAt ? new Date(customer.createdAt).getFullYear() : 'N/A'}</p>
                         </div>
                       </div>
                     </td>
@@ -313,12 +350,12 @@ const CustomerList = () => {
                     </td>
                     <td className="px-4 sm:px-6 py-4 text-right">
                       <p className="font-bold text-green-600">${(customer.totalPurchases || 0).toFixed(2)}</p>
-                     </td>
+                    </td>
                     <td className="px-4 sm:px-6 py-4 text-center">
                       <span className="inline-flex items-center justify-center px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full min-w-[40px]">
                         {customer.totalOrders || 0}
                       </span>
-                     </td>
+                    </td>
                     <td className="px-4 sm:px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Link
@@ -345,8 +382,8 @@ const CustomerList = () => {
                           </button>
                         )}
                       </div>
-                     </td>
-                   </tr>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>

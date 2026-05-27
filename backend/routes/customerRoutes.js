@@ -1,10 +1,12 @@
 const express = require('express');
 const Customer = require('../models/Customer');
+const Sale = require('../models/Sale'); // Import Sale model
+const { protect } = require('../middleware/auth'); // Import protect middleware
 
 const router = express.Router();
 
 // GET all customers
-router.get('/', async (req, res) => {
+router.get('/', protect, async (req, res) => {
   try {
     const customers = await Customer.find().sort({ createdAt: -1 });
     console.log(`Found ${customers.length} customers`);
@@ -16,7 +18,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET single customer
-router.get('/:id', async (req, res) => {
+router.get('/:id', protect, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.id);
     if (!customer) {
@@ -29,7 +31,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST create customer
-router.post('/', async (req, res) => {
+router.post('/', protect, async (req, res) => {
   try {
     const { name, email, phone, address, city, company, notes } = req.body;
     
@@ -64,7 +66,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT update customer
-router.put('/:id', async (req, res) => {
+router.put('/:id', protect, async (req, res) => {
   try {
     const customer = await Customer.findByIdAndUpdate(
       req.params.id,
@@ -81,7 +83,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE customer
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', protect, async (req, res) => {
   try {
     const customer = await Customer.findByIdAndDelete(req.params.id);
     if (!customer) {
@@ -94,15 +96,14 @@ router.delete('/:id', async (req, res) => {
 });
 
 // GET customer purchase history
-router.get('/:id/history', async (req, res) => {
+router.get('/:id/history', protect, async (req, res) => {
   try {
-    const customer = await Customer.findById(req.params.id);
-    if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
-    }
-    // You can populate sales here if you have a Sale model
-    res.json({ success: true, data: { purchases: [] } });
+    const purchases = await Sale.find({ customer: req.params.id })
+      .populate('items.product')
+      .sort({ saleDate: -1 });
+    res.json({ success: true, data: purchases });
   } catch (error) {
+    console.error('Error fetching purchase history:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
