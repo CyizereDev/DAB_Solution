@@ -29,8 +29,42 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
   const [notifications, setNotifications] = useState([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const notificationRef = useRef(null);
+  const fetchIntervalRef = useRef(null);
+  const lastNotificationIdRef = useRef(null);
 
   const getAuthToken = () => localStorage.getItem('token');
+
+  // Load seen notifications from localStorage
+  const getSeenNotifications = () => {
+    const seen = localStorage.getItem('seenNotifications');
+    return seen ? new Set(JSON.parse(seen)) : new Set();
+  };
+
+  const saveSeenNotifications = (seenSet) => {
+    localStorage.setItem('seenNotifications', JSON.stringify([...seenSet]));
+  };
+
+  // Load read notifications from localStorage
+  const getReadNotifications = () => {
+    const read = localStorage.getItem('readNotifications');
+    return read ? new Set(JSON.parse(read)) : new Set();
+  };
+
+  const saveReadNotifications = (readSet) => {
+    localStorage.setItem('readNotifications', JSON.stringify([...readSet]));
+  };
+
+  const [seenNotifications, setSeenNotifications] = useState(getSeenNotifications);
+  const [readNotifications, setReadNotifications] = useState(getReadNotifications);
+
+  // Save to localStorage whenever sets change
+  useEffect(() => {
+    saveSeenNotifications(seenNotifications);
+  }, [seenNotifications]);
+
+  useEffect(() => {
+    saveReadNotifications(readNotifications);
+  }, [readNotifications]);
 
   // Fetch recent activities
   const fetchRecentActivities = async () => {
@@ -45,16 +79,36 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
       const activities = response.data?.data || [];
       
       // Transform activities into notification format
-      const formattedNotifications = activities.map(activity => ({
+      const newNotifications = activities.map(activity => ({
         id: activity._id,
         message: activity.details || `${activity.action} occurred`,
         time: activity.timestamp,
-        read: false,
+        timestamp: new Date(activity.timestamp).getTime(),
         type: getNotificationType(activity.action),
         icon: getNotificationIcon(activity.action)
       }));
 
-      setNotifications(formattedNotifications);
+      // Update notifications - only add truly new ones
+      setNotifications(prevNotifications => {
+        // Create a map of existing notifications by ID
+        const existingMap = new Map(prevNotifications.map(n => [n.id, n]));
+        
+        // Add new notifications that don't exist yet
+        newNotifications.forEach(notification => {
+          if (!existingMap.has(notification.id)) {
+            existingMap.set(notification.id, notification);
+          }
+        });
+        
+        // Convert back to array and sort by timestamp (newest first)
+        const updated = Array.from(existingMap.values());
+        return updated.sort((a, b) => b.timestamp - a.timestamp);
+      });
+      
+      // Track the latest notification ID for future reference
+      if (newNotifications.length > 0) {
+        lastNotificationIdRef.current = newNotifications[0].id;
+      }
     } catch (error) {
       console.error('Error fetching activities:', error);
     }
@@ -89,11 +143,12 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
     }
   };
 
+  // Initial fetch and set up real-time polling every 3 seconds
   useEffect(() => {
     fetchRecentActivities();
     
-    // Refresh notifications every 30 seconds
-    const interval = setInterval(fetchRecentActivities, 30000);
+    // Set up interval to fetch every 3 seconds
+    fetchIntervalRef.current = setInterval(fetchRecentActivities, 3000);
     
     // Close notification dropdown when clicking outside
     const handleClickOutside = (event) => {
@@ -105,7 +160,9 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
     document.addEventListener('mousedown', handleClickOutside);
     
     return () => {
-      clearInterval(interval);
+      if (fetchIntervalRef.current) {
+        clearInterval(fetchIntervalRef.current);
+      }
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
@@ -125,19 +182,24 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
     }
   };
 
-  const markAsRead = async (notificationId) => {
-    setNotifications(prev =>
-      prev.map(notif =>
-        notif.id === notificationId ? { ...notif, read: true } : notif
-      )
-    );
+  const markAsRead = (notificationId) => {
+    setReadNotifications(prev => new Set([...prev, notificationId]));
+    // Also mark as seen when marked as read
+    setSeenNotifications(prev => new Set([...prev, notificationId]));
   };
 
   const markAllAsRead = () => {
-    setNotifications(prev =>
-      prev.map(notif => ({ ...notif, read: true }))
-    );
+    const allIds = notifications.map(n => n.id);
+    setReadNotifications(new Set(allIds));
+    setSeenNotifications(new Set(allIds));
     toast.success('All notifications marked as read');
+  };
+
+  // Mark notification as seen when it appears in the list
+  const markAsSeen = (notificationId) => {
+    if (!seenNotifications.has(notificationId)) {
+      setSeenNotifications(prev => new Set([...prev, notificationId]));
+    }
   };
 
   const handleNotificationClick = (notification) => {
@@ -158,7 +220,17 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // A notification is unread if it's not in readNotifications
+  const isUnread = (notificationId) => {
+    return !readNotifications.has(notificationId);
+  };
+
+  // A notification is new (unseen) if it's not in seenNotifications
+  const isNew = (notificationId) => {
+    return !seenNotifications.has(notificationId);
+  };
+
+  const unreadCount = notifications.filter(n => isUnread(n.id)).length;
 
   const formatTime = (timestamp) => {
     try {
@@ -167,6 +239,13 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
       return 'Recently';
     }
   };
+
+  // Mark notifications as seen when they are rendered
+  useEffect(() => {
+    notifications.forEach(notification => {
+      markAsSeen(notification.id);
+    });
+  }, [notifications]);
 
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30 transition-colors duration-200">
@@ -270,14 +349,16 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
                       notifications.map((notif) => {
                         const IconComponent = notif.icon;
                         const notificationColor = getNotificationColor(notif.type);
+                        const unread = isUnread(notif.id);
+                        const newNotification = isNew(notif.id);
                         
                         return (
                           <div
                             key={notif.id}
                             onClick={() => handleNotificationClick(notif)}
-                            className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
-                              !notif.read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
-                            }`}
+                            className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200 cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
+                              unread ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                            } ${newNotification ? 'animate-slide-in-right' : ''}`}
                           >
                             <div className="flex items-start gap-3">
                               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${notificationColor}`}>
@@ -291,8 +372,8 @@ const Header = ({ onMenuClick, onMobileMenuClick }) => {
                                   {formatTime(notif.time)}
                                 </p>
                               </div>
-                              {!notif.read && (
-                                <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1"></div>
+                              {unread && (
+                                <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1 animate-pulse"></div>
                               )}
                             </div>
                           </div>

@@ -48,7 +48,7 @@ router.post('/', async (req, res) => {
     for (const item of items) {
       const product = await Product.findById(item.product);
       if (product) {
-        product.quantity += item.quantity;
+        product.quantity -= item.quantity;
         await product.save();
         console.log(`Updated stock for ${product.name}: +${item.quantity}`);
       }
