@@ -24,7 +24,7 @@ It provides a powerful dashboard and tools for business automation and digital t
 
 ## 🔐 Authentication
 - JWT Authentication
-- Role-Based Access (Admin / User)
+- Role-Based Access 
 - Secure Password Encryption
 - Protected Routes
 
